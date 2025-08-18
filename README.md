@@ -1,16 +1,47 @@
-# file_manager
+# File Manager App
+A file & folder manager built with Flutter.
+This app allows you to create, rename, delete, open, and organize files & folders with support for multi-selection, drag & drop, and grid/list views.
 
-A new Flutter project.
+## Features - 
+ ### Folder & File Management -
+  + Create, rename, and delete folders
+  + Import files from device (PDF, DOC, TXT, PNG, JPG, etc.)
+  + Open files with the default app using open_filex
+    
+ ### Navigation
+   + Tap folders to open subfolders
+   + Navigate easily using folder hierarchy
 
-## Getting Started
+  ### Multi-Selection Mode
+  + Long press to select multiple files
+  + Perform bulk drag & drop into folders
 
-This project is a starting point for a Flutter application.
+ ### Drag & Drop
+   + Move files or multiple selected items into folders
 
-A few resources to get you started if this is your first Flutter project:
+ ### View Modes
+  + Toggle between ListView and GridView
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Settings Drawer
+  + Access app settings (expandable in future)
+    
+## Security
+Includes App Lock feature for protecting access to your files.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+  + PIN Lock
+    -  Create 4-digit PIN
+    -  Confirm PIN before saving
+    -  Required for unlocking the app
+  
+  + Security Questions
+    - Choose 2 security questions from a predefined list
+    - Answers are encrypted and stored locally
+    - Used for password recovery if PIN is forgotten
+
+  + Biometric Authentication
+    - Unlock app with Fingerprint or Face ID (based on device support)
+    - Faster and more secure than PIN entry
+
+
+    
+    
