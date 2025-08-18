@@ -1,8 +1,6 @@
 import 'package:file_manager/helper/folder_model.dart';
 import 'package:file_manager/helper/db_helper.dart';
-import 'package:file_manager/newfolder_screen.dart';
-import 'package:file_manager/pin/applock_service.dart';
-import 'package:file_manager/pin/pin_screen.dart';
+import 'package:file_manager/subfolder_screen.dart';
 import 'package:file_manager/setting_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
