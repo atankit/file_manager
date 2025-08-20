@@ -30,9 +30,12 @@ class _FirstScreenState extends State<FirstScreen>{
   }
 
   Future<void> _loadFolders() async {
-    folders = await DatabaseHelper.instance.getFolders();
-    setState(() {});
+    final fetchedFolders = await DatabaseHelper.instance.getFolders();
+    setState(() {
+      folders = fetchedFolders;
+    });
   }
+
 
   @override
   Widget build(BuildContext context) {
