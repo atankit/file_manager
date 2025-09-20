@@ -1,3 +1,6 @@
+import 'package:file_manager/gesture/gesture_painter.dart';
+import 'package:file_manager/gesture/gesture_screen.dart';
+import 'package:file_manager/gesture/match_gesture.dart';
 import 'package:file_manager/helper/folder_model.dart';
 import 'package:file_manager/helper/db_helper.dart';
 import 'package:file_manager/subfolder_screen.dart';
@@ -26,16 +29,17 @@ class _FirstScreenState extends State<FirstScreen>{
   @override
   void initState() {
     super.initState();
-    _loadFolders();
+    fetchFolder();
   }
 
-  Future<void> _loadFolders() async {
-    final fetchedFolders = await DatabaseHelper.instance.getFolders();
+
+  Future<void> fetchFolder() async {
+    final getAllFolders = await DatabaseHelper.instance.getFolders();
+    if (!mounted) return;
     setState(() {
-      folders = fetchedFolders;
+      folders = getAllFolders;
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +67,14 @@ class _FirstScreenState extends State<FirstScreen>{
           backgroundColor: Colors.indigo,
           foregroundColor: Colors.white,
           title: Text('File Manager'),
+          actions: [
+             TextButton(
+                onPressed: (){
+                 gestureDialog();
+                },
+                child: Icon(Icons.gesture_outlined, color: Colors.white,)
+            )
+          ],
         ),
         drawer: settingDrawer(context),
 
@@ -304,6 +316,18 @@ class _FirstScreenState extends State<FirstScreen>{
               );
             },
           ),
+          ListTile(
+            leading: Icon(Icons.gesture, color: Colors.green),
+            title: Text('Gesture', style: TextStyle(fontSize: 20)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => GestureScreen()),
+              );
+            },
+          ),
+
         ],
       ),
     );
@@ -406,16 +430,47 @@ class _FirstScreenState extends State<FirstScreen>{
         child: DragTarget<List<Folder>>(
           onWillAcceptWithDetails: (details) =>
               _canAcceptDrop(folder, details.data),
+
           onAcceptWithDetails: (details) async {
             List<Folder> dragged = details.data;
+
+            final existingChildren = await DatabaseHelper.instance.getFolders(parentId: folder.id);
+
             for (var item in dragged) {
-              item.parentId = folder.id;
-              await DatabaseHelper.instance.updateFolder(item);
+              final duplicate = existingChildren.any((c) =>
+              c.id != item.id &&
+                  c.isFile == item.isFile &&
+                  c.name.toLowerCase() == item.name.toLowerCase()
+              );
+
+              if (duplicate) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        "${item.isFile ? "File" : "Folder"} '${item.name}' already exists in '${folder.name}'"
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
             }
-            selectedFiles.clear();
-            multiSelectMode = false;
-            await _loadFolders();
+
+            for (var item in dragged) {
+              if (item.parentId != folder.id) {
+                item.parentId = folder.id;
+                await DatabaseHelper.instance.updateFolder(item);
+              }
+            }
+
+            setState(() {
+              selectedFiles.clear();
+              multiSelectMode = false;
+            });
+
+            await fetchFolder();
           },
+
           builder: (context, candidateData, rejectedData) {
             return Draggable<List<Folder>>(
               data: draggableData,
@@ -436,9 +491,27 @@ class _FirstScreenState extends State<FirstScreen>{
     }
 
   }
+
   bool _canAcceptDrop(Folder target, List<Folder> dragged) {
-    return dragged.every((f) => f.id != target.id);
+    if (dragged.any((f) => f.id == target.id)) return false;
+
+    final existingChildren = folders.where((f) => f.parentId == target.id).toList();
+
+    for (var item in dragged) {
+      if (item.isFile) {
+        final duplicate = existingChildren.any((c) =>
+        c.isFile &&
+            c.name.toLowerCase() == item.name.toLowerCase());
+
+        if (duplicate) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
+
 
   Widget dragFeedbackUi(Set<Folder> selectedFiles) {
     final count = selectedFiles.length;
@@ -640,6 +713,22 @@ class _FirstScreenState extends State<FirstScreen>{
     if (result != null && result.files.single.path != null) {
       final pickedFile = result.files.single;
 
+      bool exists = folders.any((f) =>
+      f.isFile &&
+          f.name.toLowerCase() == pickedFile.name.toLowerCase()
+      );
+
+      if (exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("File '${pickedFile.name}' already exists"),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // ✅ Add only if not duplicate
       Folder file = Folder(
         name: pickedFile.name,
         createdAt: DateTime.now(),
@@ -649,13 +738,15 @@ class _FirstScreenState extends State<FirstScreen>{
       );
 
       await DatabaseHelper.instance.insertFolder(file);
-      await _loadFolders();
+      await fetchFolder();
     }
   }
 
+
   void createFolderDialog() {
     TextEditingController _controller = TextEditingController();
-    bool showError = false;
+    String? errorMsg;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -667,8 +758,7 @@ class _FirstScreenState extends State<FirstScreen>{
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Enter a name for your new folder:',
+                Text('Enter a name for your new folder:',
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                 ),
                 SizedBox(height: 12),
@@ -680,7 +770,7 @@ class _FirstScreenState extends State<FirstScreen>{
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    errorText: showError ? 'Folder name cannot be empty' : null,
+                    errorText: errorMsg,
                   ),
                 ),
               ],
@@ -693,14 +783,22 @@ class _FirstScreenState extends State<FirstScreen>{
               TextButton(
                 onPressed: () {
                   final name = _controller.text.trim();
+
                   if (name.isEmpty) {
-                    setState(() => showError = true);
-                  } else {
-                    this.setState(() {
-                      _addFolder(name);
-                    });
-                    Navigator.pop(context);
+                    setState(() => errorMsg = 'Folder name cannot be empty');
+                    return;
                   }
+
+                  bool exists = folders.any((f) =>
+                  !f.isFile && f.name.toLowerCase() == name.toLowerCase()
+                  );
+
+                  if (exists) {
+                    setState(() => errorMsg = 'Folder already exists');
+                    return;
+                  }
+                   _addFolder(name);
+                  Navigator.pop(context);
                 },
                 child: Text('CREATE', style: TextStyle(color: Colors.blue)),
               ),
@@ -713,7 +811,8 @@ class _FirstScreenState extends State<FirstScreen>{
 
   void renameDialog(Folder folder) {
     TextEditingController _controller = TextEditingController(text: folder.name);
-    bool showError = false;
+    String? errorMsg;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -738,7 +837,7 @@ class _FirstScreenState extends State<FirstScreen>{
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    errorText: showError ? 'Folder name cannot be empty' : null,
+                    errorText: errorMsg,
                   ),
                 ),
               ],
@@ -751,24 +850,38 @@ class _FirstScreenState extends State<FirstScreen>{
               TextButton(
                 onPressed: () async {
                   String newName = _controller.text.trim();
+
                   if (newName.isEmpty) {
-                    setState(() => showError = true);
-                  } else {
-                    folder.name = newName;
-                    await DatabaseHelper.instance.updateFolder(folder);
-                    Navigator.pop(context);
-                    _loadFolders();
+                    setState(() => errorMsg = 'Folder name cannot be empty');
+                    return;
                   }
+
+                  bool exists = folders.any((f) =>
+                  f.id != folder.id &&
+                      f.isFile == folder.isFile &&
+                      f.name.toLowerCase() == newName.toLowerCase()
+                  );
+
+                  if (exists) {
+                    setState(() => errorMsg = 'Folder name already exists');
+                    return;
+                  }
+
+                  // ✅ Update name
+                  folder.name = newName;
+                  await DatabaseHelper.instance.updateFolder(folder);
+                  Navigator.pop(context);
+                  fetchFolder();
                 },
                 child: Text('RENAME', style: TextStyle(color: Colors.blue)),
               ),
-
             ],
           ),
         );
       },
     );
   }
+
 
   void deleteDialog(Folder folder) {
     showDialog(
@@ -801,7 +914,7 @@ class _FirstScreenState extends State<FirstScreen>{
               onPressed: () async {
                 await DatabaseHelper.instance.deleteFolder(folder.id!);
                 Navigator.pop(context);
-                _loadFolders();
+                fetchFolder();
               },
               child: Text('DELETE', style: TextStyle(color: Colors.red)),
             ),
@@ -819,7 +932,113 @@ class _FirstScreenState extends State<FirstScreen>{
       parentId: null,
     );
     await DatabaseHelper.instance.insertFolder(newFolder);
-    _loadFolders();
+    fetchFolder();
+  }
+
+
+  void gestureDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        List<Offset?> userPoints = [];
+        return StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            title: Text('Draw Gesture'),
+            content: Container(
+              height: 300,
+              width: 300,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(10),
+                color: Colors.white,
+              ),
+              child: Builder(
+                builder: (boxContext) {
+                  return GestureDetector(
+                    onPanUpdate: (details) {
+                      RenderBox box = boxContext.findRenderObject() as RenderBox;
+                      Offset localPos = box.globalToLocal(details.globalPosition);
+
+                      if (localPos.dx >= 0 &&
+                          localPos.dy >= 0 &&
+                          localPos.dx <= box.size.width &&
+                          localPos.dy <= box.size.height) {
+                        setState(() {
+                          userPoints.add(localPos);
+                        });
+                      }
+                    },
+                    onPanEnd: (details) async {
+                      setState(() {
+                        userPoints.add(null);
+                      });
+
+                      bool matched = await _matchGestureAndOpen(context, userPoints);
+
+                      if (!matched) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text("No matching gesture found")),
+                        );
+                      }
+
+                      setState(() {
+                        userPoints.clear();
+                      });
+                    },
+                    child: CustomPaint(
+                      painter: GesturePainter(userPoints),
+                      child: Container(),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text("Close"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _matchGestureAndOpen(BuildContext context, List<Offset?> userPoints) async {
+    final gestures = await DatabaseHelper.instance.getGestures();
+
+    for (var g in gestures) {
+      final savedPoints = g.points;
+
+      if (GestureUtils.isGestureSimilar(userPoints, savedPoints)) {
+        int? folderId = g.folderId;
+
+        final folder = await DatabaseHelper.instance.getFolderById(folderId!);
+        if (folder != null) {
+          if (folder.isFile && folder.filePath != null) {
+            await OpenFilex.open(folder.filePath!);
+          } else {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => subFolder(folder: folder),
+              ),
+            );
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Folder not found in DB")),
+          );
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   String timeAgo(DateTime date) {

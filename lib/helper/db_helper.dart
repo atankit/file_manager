@@ -1,4 +1,5 @@
 import 'package:file_manager/helper/folder_model.dart';
+import 'package:file_manager/helper/gesture_model.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart';
@@ -22,8 +23,9 @@ class DatabaseHelper {
     String path = join(dir.path, 'folders.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -38,8 +40,32 @@ class DatabaseHelper {
         parentId INTEGER
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE gestures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folderId INTEGER,
+        gesturePoints TEXT,
+        createdAt TEXT,
+        FOREIGN KEY(folderId) REFERENCES folders(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE gestures (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          folderId INTEGER,
+          gesturePoints TEXT,
+          createdAt TEXT,
+          FOREIGN KEY(folderId) REFERENCES folders(id) ON DELETE CASCADE
+        )
+      ''');
+
+    }
+  }
 
   Future<int> insertFolder(Folder folder) async {
     Database database = await db;
@@ -65,5 +91,54 @@ class DatabaseHelper {
   Future<int> updateFolder(Folder folder) async {
     Database database = await db;
     return await database.update('folders', folder.toMap(), where: 'id = ?', whereArgs: [folder.id]);
+  }
+
+  Future<Folder?> getFolderById(int id) async {
+    final database = await db;
+    final result = await database.query(
+      'folders',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (result.isNotEmpty) {
+      return Folder.fromMap(result.first);
+    }
+    return null;
+  }
+
+  Future<String?> getFolderNameById(int folderId) async {
+    final database = await db;
+    final result = await database.query(
+      'folders',
+      columns: ['name'],
+      where: 'id = ?',
+      whereArgs: [folderId],
+    );
+    if (result.isNotEmpty) {
+      return result.first['name'] as String;
+    }
+    return null;
+  }
+
+  //              Gesture  ------------------
+  Future<int> insertGesture(GestureModel gesture) async {
+    final database = await db;
+    return await database.insert('gestures', gesture.toMap());
+  }
+
+  Future<List<GestureModel>> getGestures() async {
+    final database = await db;
+    final result = await database.query('gestures');
+    return result.map((map) => GestureModel.fromMap(map)).toList();
+  }
+
+  Future<int> deleteGesture(int id) async {
+    final database = await db;
+    return await database.delete(
+      'gestures',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

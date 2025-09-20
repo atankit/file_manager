@@ -1,3 +1,4 @@
+import 'package:file_manager/first_screen.dart';
 import 'package:file_manager/helper/folder_model.dart';
 import 'package:file_manager/helper/db_helper.dart';
 import 'package:file_picker/file_picker.dart';
@@ -59,6 +60,12 @@ class subFolderState extends State<subFolder> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         title: Text(widget.folder.name),
+
+        leading: IconButton(
+            onPressed: (){
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context)=> FirstScreen()));
+            }, 
+            icon: Icon(Icons.arrow_back)),
       ),
       body: ListView.builder(
         itemCount: itemCount,
@@ -190,16 +197,48 @@ class subFolderState extends State<subFolder> {
         color: Colors.white,
         child: DragTarget<List<Folder>>(
           onWillAcceptWithDetails: (details) => _canAcceptDrop(folder, details.data),
-          onAcceptWithDetails: (details) async {
-            List<Folder> draggedFiles = details.data;
-            for (var file in draggedFiles) {
-              file.parentId = folder.id;
-              await DatabaseHelper.instance.updateFolder(file);
-            }
-            selectedFiles.clear();
-            multiSelectMode = false;
-            await _loadChildren();
-          },
+
+            onAcceptWithDetails: (details) async {
+              List<Folder> dragged = details.data;
+
+              // ✅ fresh children of target folder from DB
+              final existingChildren = await DatabaseHelper.instance.getFolders(parentId: folder.id);
+
+              for (var item in dragged) {
+                final duplicate = existingChildren.any((c) =>
+                c.id != item.id && // apne aap se compare na kare
+                    c.isFile == item.isFile && // file/file aur folder/folder alag check hoga
+                    c.name.toLowerCase() == item.name.toLowerCase()
+                );
+
+                if (duplicate) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          "${item.isFile ? "File" : "Folder"} '${item.name}' already exists in '${folder.name}'"
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return; // ❌ stop move
+                }
+              }
+
+              // ✅ Safe to move
+              for (var item in dragged) {
+                if (item.parentId != folder.id) {
+                  item.parentId = folder.id;
+                  await DatabaseHelper.instance.updateFolder(item);
+                }
+              }
+
+              setState(() {
+                selectedFiles.clear();
+                multiSelectMode = false;
+              });
+
+              await _loadChildren();
+            },
 
           builder: (context, candidateData, rejectedData) {
             return GestureDetector(
@@ -231,12 +270,59 @@ class subFolderState extends State<subFolder> {
     }
 
   }
+  // bool _canAcceptDrop(Folder target, List<Folder> dragged) {
+  //   return dragged.every((f) =>
+  //   f.id != target.id &&
+  //       f.parentId != target.id
+  //   );
+  // }
+
   bool _canAcceptDrop(Folder target, List<Folder> dragged) {
-    return dragged.every((f) =>
-    f.id != target.id &&
-        f.parentId != target.id
-    );
+    // prevent dropping into itself
+    if (dragged.any((f) => f.id == target.id)) return false;
+
+    // ✅ get children of target (already loaded in DB)
+    final existingChildren = children.where((f) => f.parentId == target.id).toList();
+
+    for (var item in dragged) {
+      if (item.isFile) {
+        final duplicate = existingChildren.any((c) =>
+        c.isFile &&
+            c.name.toLowerCase() == item.name.toLowerCase());
+
+        if (duplicate) {
+          return false; // ❌ reject drop
+        }
+      }
+    }
+
+    return true;
   }
+
+  // bool _canAcceptDrop(Folder target, List<Folder> dragged) {
+  //   // prevent dropping into itself
+  //   if (dragged.any((f) => f.id == target.id)) return false;
+  //
+  //   // ✅ get children of target (already loaded in DB or memory)
+  //   final existingChildren =
+  //   children.where((f) => f.parentId == target.id).toList();
+  //
+  //   for (var item in dragged) {
+  //     if (!item.isFile) {
+  //       // 🔹 Sirf folders ke liye duplicate check
+  //       final duplicate = existingChildren.any((c) =>
+  //       !c.isFile && // ✅ check only among folders
+  //           c.id != item.id && // apne aap se compare na kare
+  //           c.name.toLowerCase() == item.name.toLowerCase());
+  //
+  //       if (duplicate) {
+  //         return false; // ❌ duplicate folder found
+  //       }
+  //     }
+  //   }
+  //
+  //   return true; // ✅ otherwise allow
+  // }
 
   Widget _buildListTile(Folder folder) {
     return ListTile(
@@ -359,7 +445,7 @@ class subFolderState extends State<subFolder> {
           ),
           GestureDetector(
             onTap: () {
-              _showCreateFolderDialog();
+              createFolderDialog();
             },
             child: Icon(Icons.add, color: Colors.white),
           ),
@@ -370,57 +456,51 @@ class subFolderState extends State<subFolder> {
 
   void renameDialog(Folder folder) {
     TextEditingController _controller = TextEditingController(text: folder.name);
-    bool showError = false;
+    String? errorMsg;
+
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
             title: Text('Rename Folder'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Enter a new name for the folder:',
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                ),
-                SizedBox(height: 12),
-                TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Folder name',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    errorText: showError ? 'Folder name cannot be empty' : null,
-                  ),
-                ),
-              ],
+            content: TextField(
+              controller: _controller,
+              decoration: InputDecoration(
+                hintText: 'Folder name',
+                errorText: errorMsg,
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('CANCEL', style: TextStyle(color: Colors.blue)),
+                child: Text('CANCEL'),
               ),
               TextButton(
                 onPressed: () async {
                   String newName = _controller.text.trim();
                   if (newName.isEmpty) {
-                    setState(() => showError = true);
-                  } else {
-                    folder.name = newName;
-                    await DatabaseHelper.instance.updateFolder(folder);
-                    Navigator.pop(context);
-                    await _loadChildren();
+                    setState(() => errorMsg = "Folder name cannot be empty");
+                    return;
                   }
+
+                  final existing = children.any((f) =>
+                  f.parentId == folder.parentId &&
+                      f.id != folder.id &&
+                      f.name.toLowerCase() == newName.toLowerCase());
+
+                  if (existing) {
+                    setState(() => errorMsg = "This name already exists!");
+                    return;
+                  }
+
+                  folder.name = newName;
+                  await DatabaseHelper.instance.updateFolder(folder);
+                  Navigator.pop(context);
+                  await _loadChildren();
                 },
-
-                child: Text('RENAME', style: TextStyle(color: Colors.blue)),
+                child: Text('RENAME'),
               ),
-
             ],
           ),
         );
@@ -469,36 +549,58 @@ class subFolderState extends State<subFolder> {
     );
   }
 
-  void _showCreateFolderDialog() {
+  void createFolderDialog() {
     TextEditingController controller = TextEditingController();
+    String? errorMsg;
+
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('New Folder'),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(hintText: 'Folder name'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('CANCEL')),
-          TextButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                Folder newFolder = Folder(
-                  name: name,
-                  createdAt: DateTime.now(),
-                  isFile: false,
-                  parentId: widget.folder.id,
-                );
-                await DatabaseHelper.instance.insertFolder(newFolder);
-                Navigator.pop(context);
-                await _loadChildren();
-              }
-            },
-            child: Text('CREATE'),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('New Folder'),
+          content: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              hintText: 'Folder name',
+              errorText: errorMsg,
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final name = controller.text.trim();
+                if (name.isNotEmpty) {
+                  // 🔹 Check for duplicate name
+                  final existing = children.any((f) =>
+                  f.parentId == widget.folder.id &&
+                      f.name.toLowerCase() == name.toLowerCase());
+
+                  if (existing) {
+                    setState(() => errorMsg = "This name already exists!");
+                    return;
+                  }
+
+                  Folder newFolder = Folder(
+                    name: name,
+                    createdAt: DateTime.now(),
+                    isFile: false,
+                    parentId: widget.folder.id,
+                  );
+                  await DatabaseHelper.instance.insertFolder(newFolder);
+                  Navigator.pop(context);
+                  await _loadChildren();
+                } else {
+                  setState(() => errorMsg = "Folder name cannot be empty");
+                }
+              },
+              child: Text('CREATE'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -511,8 +613,23 @@ class subFolderState extends State<subFolder> {
 
     if (result != null && result.files.single.path != null) {
       final file = result.files.single;
+      final fileName = file.name.trim();
+
+      final exists = children.any((f) =>
+      f.parentId == widget.folder.id &&
+          f.isFile &&
+          f.name.toLowerCase() == fileName.toLowerCase());
+
+      if (exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('This file already exists'),
+            backgroundColor: Colors.red, ),
+        );
+        return;
+      }
+
       Folder newFile = Folder(
-        name: file.name,
+        name: fileName,
         createdAt: DateTime.now(),
         isFile: true,
         filePath: file.path!,
@@ -522,6 +639,7 @@ class subFolderState extends State<subFolder> {
       await _loadChildren();
     }
   }
+
   String _timeAgo(DateTime date) {
     final diff = DateTime.now().difference(date);
     if (diff.inMinutes < 1) return "0 minutes";
