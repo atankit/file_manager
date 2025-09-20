@@ -43,22 +43,24 @@ class _GestureScreenState extends State<GestureScreen> {
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         title: Text('Gesture'),
-        actions: [
-          TextButton(
+        actions: isGestureEnable ? [
+          IconButton(
             onPressed: () {
               addGestureDialog();
             },
-            child: Icon(Icons.add, color: Colors.white, size: 25),
+            icon: Icon(Icons.add, color: Colors.white, size: 25),
           ),
-          // TextButton(
+        ] : null,
+
+          // IconButton(
           //   onPressed: () {},
-          //   child: Icon(
+          //   icon: Icon(
           //     Icons.location_on_outlined,
           //     color: Colors.white,
           //     size: 25,
           //   ),
           // ),
-        ],
+
       ),
       body: Column(
         children: [
@@ -74,6 +76,7 @@ class _GestureScreenState extends State<GestureScreen> {
                     isGestureEnable = value;
                   });
                   await GestureService.setGestureEnable(value);
+                  Navigator.pop(context, value);
                 },
                 activeColor: Colors.white,
                 activeTrackColor: Colors.blue,

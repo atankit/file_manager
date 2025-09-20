@@ -1,5 +1,6 @@
 import 'package:file_manager/gesture/gesture_painter.dart';
 import 'package:file_manager/gesture/gesture_screen.dart';
+import 'package:file_manager/gesture/gesture_service.dart';
 import 'package:file_manager/gesture/match_gesture.dart';
 import 'package:file_manager/helper/folder_model.dart';
 import 'package:file_manager/helper/db_helper.dart';
@@ -26,10 +27,13 @@ class _FirstScreenState extends State<FirstScreen>{
   Folder? dragSingleFile;
   bool listView = true;
 
+  bool isGestureEnable = false;
+
   @override
   void initState() {
     super.initState();
     fetchFolder();
+    _loadGestureState();
   }
 
 
@@ -38,6 +42,14 @@ class _FirstScreenState extends State<FirstScreen>{
     if (!mounted) return;
     setState(() {
       folders = getAllFolders;
+    });
+  }
+
+  Future<void> _loadGestureState() async {
+    final value = await GestureService.getGestureEnable();
+    print("----------------------------Gesture enable value: $value");
+    setState(() {
+      isGestureEnable = value;
     });
   }
 
@@ -67,14 +79,15 @@ class _FirstScreenState extends State<FirstScreen>{
           backgroundColor: Colors.indigo,
           foregroundColor: Colors.white,
           title: Text('File Manager'),
-          actions: [
-             TextButton(
+
+          actions: isGestureEnable ?   [
+            IconButton(
                 onPressed: (){
-                 gestureDialog();
+                  gestureDialog();
                 },
-                child: Icon(Icons.gesture_outlined, color: Colors.white,)
+                icon: Icon(Icons.gesture_outlined, color: Colors.white,)
             )
-          ],
+          ] : null,
         ),
         drawer: settingDrawer(context),
 
@@ -319,12 +332,22 @@ class _FirstScreenState extends State<FirstScreen>{
           ListTile(
             leading: Icon(Icons.gesture, color: Colors.green),
             title: Text('Gesture', style: TextStyle(fontSize: 20)),
-            onTap: () {
+            onTap: () async {
               Navigator.pop(context);
-              Navigator.push(
+              // Navigator.push(
+              //   context,
+              //   MaterialPageRoute(builder: (context) => GestureScreen()),
+              // );
+
+              final result = await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => GestureScreen()),
+                MaterialPageRoute(builder: (_) => GestureScreen()),
               );
+              if (result != null) {
+                setState(() {
+                  isGestureEnable = result; // update UI
+                });
+              }
             },
           ),
 
